@@ -33,14 +33,20 @@ int main(int argc, char **argv)
 	struct sockaddr_in	servaddr;
     const char* SERV_IP = "140.113.213.213";
     char buffer[MAXLINE];
+    char buffer1[MAXLINE];
+    char buffer2[MAXLINE];
     char sendline[MAXLINE];
 
 	// if (argc != 2)
 	// 	err_quit("usage: tcpcli <SERV PORT>");
-
+    
 	sockfd = socket(AF_INET, SOCK_STREAM, 0);
-
-	bzero(&servaddr, sizeof(servaddr));
+    struct timeval tv;
+    tv.tv_sec = 3;/*timeout in second*/
+    tv.tv_usec = 0;
+    setsockopt(sockfd, SOL_SOCKET, SO_RCVTIMEO, (const char*)&tv, sizeof tv);
+	
+    bzero(&servaddr, sizeof(servaddr));
 	servaddr.sin_family = AF_INET;
 	servaddr.sin_port = htons(PORT);
 	inet_pton(AF_INET, SERV_IP, &servaddr.sin_addr);
@@ -51,48 +57,60 @@ int main(int argc, char **argv)
         return -1;
     }
     printf("connect success!\n");
-    // bzero(&buffer, sizeof(buffer));
-    // n = read(sockfd, buffer, 200);
-    // cout << buffer << "\n\n\n";
-    bzero(&buffer, sizeof(buffer));
-    n = read(sockfd, buffer, sizeof(buffer));
-    cout << buffer << "\n\n\n";
-    bzero(&buffer, sizeof(buffer));
-    n = read(sockfd, buffer, 202);
-    cout << buffer << "\n\n\n";
-    bzero(&buffer, sizeof(buffer));
-    n = read(sockfd, buffer, sizeof(buffer));
-    cout << buffer << "\n\n\n";
-    // char tmp[1000];
-    // n = read(sockfd, tmp, sizeof(tmp));
-    // cout << buffer << "\n\n\n";
-    // bzero(&buffer, sizeof(buffer));
-    // n = read(sockfd, buffer, sizeof(buffer));
-    // cout << buffer << "\n\n\n";
-    // bzero(&buffer, sizeof(buffer));
-    // n = read(sockfd, buffer, sizeof(buffer));
-    // if(n < 0) cout << "error while receiving messages from server\n";
-    // cout << buffer << "\n";
-    
-    // bzero(&tmp, sizeof(tmp));
-    // n = read(sockfd, tmp, sizeof(tmp));
-    // cout << tmp << "\n\n";
 
-    // generate map
-    // sleep(1);
+
+    bzero(&buffer, sizeof(buffer));
+    int nbytes = recv(sockfd, buffer, sizeof(buffer), 0);
+    if (nbytes <= 0) {
+        // close(sockfd);
+        printf("server closed connection.\n");
+    }
+    cout << "recv: " << buffer << "\n\n";
+    bzero(&buffer1, sizeof(buffer1));
+    nbytes = recv(sockfd, buffer1, sizeof(buffer1), 0);
+    if (nbytes <= 0) {
+        // close(sockfd);
+        printf("server closed connection.\n");
+    }
+    cout << "recv: " << buffer1 << "\n\n";
+    bzero(&buffer2, sizeof(buffer2));
+    nbytes = recv(sockfd, buffer2, sizeof(buffer2), 0);
+    if (nbytes <= 0) {
+        // close(sockfd);
+        printf("server closed connection.\n");
+    }
+    cout << "recv: " << buffer2 << "\n\n";
+
+    string maze_buffer = buffer;
+    maze_buffer += buffer1;maze_buffer += buffer2;
+    // bzero(&buffer, sizeof(buffer));
+    // nbytes = recv(sockfd, buffer, sizeof(buffer), 0);
+    // if (nbytes <= 0) {
+    //     close(sockfd);
+    //     printf("server closed connection.\n");
+    // }
+    // cout << "recv: " << buffer << "\n\n";
+    /*get maze string*/
+    cout << "concate: " << maze_buffer << '\n';
     int row = 0;
-    /*each for loop i + 1 will automatically flush the '\n' char*/
-    for(int i = 0; i < sizeof(buffer) / sizeof(char); i++){
-        if(buffer[i] == '#'){
-            strncpy(maze[row], buffer+i, WMAZE);
-            i += WMAZE;
-            row++;
-        }
-        if(row >= 21){
-            cout << "filled maze!\n";
-            break;
+    string searchStr = "####";
+    size_t current_idx = maze_buffer.find(searchStr);
+    if(found != string::npos) {
+        /*each for loop i + 1 will automatically flush the '\n' char*/
+        for(int i = current_idx; i < maze_buffer.length(); i++){
+            if(maze_buffer[i] == '#'){
+                strncpy(maze[row], &maze_buffer[i], WMAZE);
+                i += WMAZE;
+                row++;
+            }
+            if(row >= 21){
+                cout << "filled maze!\n";
+                break;
+            }
         }
     }
+
+    
     bool find_start = false;
     int x_start = 0, y_start = 0;
     for (int i = 0; i < HMAZE && !find_start; i++) {
@@ -108,17 +126,51 @@ int main(int argc, char **argv)
     }
     ans += '\n';
     cout << "ans: " << ans;
-    bzero(&sendline, sizeof(sendline));
-    strncpy(sendline, ans.c_str(), ans.length());
-    write(sockfd, sendline, ans.length());
+
+
+    int error = 0;
+    socklen_t error_len = sizeof(error);
+
+    int result = getsockopt(sockfd, SOL_SOCKET, SO_ERROR, &error, &error_len);
+    if (result == 0) {
+        if (error == 0) {
+            // 连接处于活动状态，没有错误
+            printf("连接处于活动状态\n");
+        } else {
+            // 连接发生错误，可以根据 error 的值来判断错误类型
+            printf("连接错误: %d\n", error);
+        }
+    } else {
+        perror("getsockopt 错误");
+    }
+
+
 
     bzero(&buffer, sizeof(buffer));
-    read(sockfd, buffer, MAXLINE);
-    cout << buffer << "\n\n";
-
-    bzero(&buffer, sizeof(buffer));
-    read(sockfd, buffer, MAXLINE);
-    cout << buffer << "\n\n";
+    strncpy(buffer, ans.c_str(), ans.length());
+    // cout << "sendline: " << buffer << '\n';
+    // n = write(sockfd, buffer, ans.length());
+    n = send(sockfd, ans.c_str(), ans.length(), 0);
+    cout << "send " << n << "bytes to server\n";
+    
+    nbytes = 0;
+    int counter = 0;
+    while(nbytes <= 0 && counter < 10){
+        bzero(&buffer, sizeof(buffer));
+        nbytes = recv(sockfd, buffer, sizeof(buffer), 0);
+        if (nbytes <= 0) {
+            printf("Not receive anything from server.\n");
+        }
+        cout << "recv: " << buffer << "\n\n";
+        bzero(&buffer, sizeof(buffer));
+        nbytes = recv(sockfd, buffer, sizeof(buffer), 0);
+        if (nbytes <= 0) {
+            printf("Not receive anything from server.\n");
+        }
+        counter ++;
+        cout << "recv: " << buffer << "\n\n";
+    }
+    close(sockfd);
     // print_maze();
 }
 
