@@ -35,40 +35,49 @@ const char *get_file_extension(const char *filename) {
     return dot + 1;
 }
 
-char *url_decode(const char *src){
-	size_t src_len = strlen(src);
-	char *decoded = malloc(src_len + 1);
-	size_t decoded_len = 0;
-	for(size_t i = 0; i < src_len; i++){
-		// %: an escape character to represent special characters using a hexadecimal encoding 
-		// ex: Original: Hello World -> Encoded: Hello%20World
-		// i + 2: check that two chars after i is still in range of src_len
-		if(src[i] == '%' && i + 2 < src_len){
-			int hex_val;
-			sscanf(src + i + 1, "%2x", &hex_val);
-			decoded[decoded_len++] = hex_val;
-		}
-		else{
-			decoded[decoded_len++] = src[i];
-		}
-	}	
-	// add null terminator
-    decoded[decoded_len] = '\0';
-	return decoded;
+void url_decode(char *str) {
+    char *in = str;
+    char *out = str;
+
+    while (*in) {
+		// printf("before:\n");
+		// printf("in: %s, out: %s\n", in, out);
+		// printf("str: %s\n", str);
+		// out and str is at the same index each time 
+		// each time read 1 byte(2 hex char) from in
+		// and put the hex value into out 
+        if (*in == '%' && isxdigit(*(in + 1)) && isxdigit(*(in + 2))) {
+            // Convert percent-encoded value to character
+            sscanf(in + 1, "%2hhx", out);
+            in += 2;
+        } else {
+			// If the current character is not part of a percent-encoded sequence
+			// copy the character from in to out directly.
+            *out = *in;
+        }
+		
+        in++;
+        out++;
+		// printf("after:\n");
+		// printf("in: %s, out: %s\n", in, out);
+		// printf("str: %s\n", str);
+    }
+
+    *out = '\0';
 }
 
 const char *get_mime_type(const char *file_extension){
 	// + '/' because we need to add the tailing slash
 	// strcasecmp: if two string are equal, ignore case
-	if (strcasecmp(file_extension, "html/") == 0 || strcasecmp(file_extension, "htm/") == 0) {
+	if (strcasecmp(file_extension, "html") == 0 || strcasecmp(file_extension, "htm/") == 0) {
         return "text/html";
-    } else if (strcasecmp(file_extension, "txt/") == 0) {
-        return "text/plain";
-    } else if (strcasecmp(file_extension, "jpg/") == 0 || strcasecmp(file_extension, "jpeg/") == 0) {
+    } else if (strcasecmp(file_extension, "txt") == 0) {
+        return "text/plain;charset=utf-8";
+    } else if (strcasecmp(file_extension, "jpg") == 0 || strcasecmp(file_extension, "jpeg/") == 0) {
         return "image/jpeg";
-    } else if (strcasecmp(file_extension, "png/") == 0) {
+    } else if (strcasecmp(file_extension, "png") == 0) {
         return "image/png";
-    } else if(strcasecmp(file_extension, "mp3/") == 0){
+    } else if(strcasecmp(file_extension, "mp3") == 0){
 		return "audio/mpeg";
 	}
 	else {
@@ -88,58 +97,8 @@ void removeFirstChar(char *str) {
     // }
 	// str[len-1] = '\0';
 }
-void build_http_response(const char *filename, const char *file_extension, 
-						char *response, size_t *response_len, int connfd) {
-	
-	
-	char buf[MAXLINE];
-	bzero(&buf, sizeof(buf));
-	// snprintf(buf, MAXLINE,"hello");
-	snprintf(buf, MAXLINE,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n");
-	send(connfd, buf, strlen(buf), 0);
-	
-	// build HTTP header
-    const char *mime_type = get_mime_type(file_extension);
 
-	// this is header
-	
-	// int file_fd = open(filename, O_RDONLY);/*O_RDONLY: open with read only*/
-	
-	// /*can not open file*/
-	// if(file_fd == -1){
-	// 	// snprintf(response, MAXLINE, "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found");
-    //     // *response_len = strlen(response);
-    //     snprintf(send_line, MAXLINE, "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found");
-	// 	send(*connfd, send_line, strlen(send_line), 0);
-	// 	return;
-	// }
-	// snprintf(send_line, MAXLINE,"HTTP/1.0 200 OK\r\nContent-Type: %s\r\n\r\n",
-    //          mime_type);
-	// send(*connfd, send_line, strlen(send_line), 0);
-	// // // get file size for Content-Length	
-    // // struct stat file_stat;
-    // // fstat(file_fd, &file_stat);
-    // // off_t file_size = file_stat.st_size;
-	// ssize_t bytes_read;
-	// // response is a pointer point to start of string
-	// // so "response + *response_len" can read data after header 
-	// while((bytes_read = read(file_fd, send_line, MAXLINE))>0){
-	// 	send(*connfd, send_line, strlen(send_line), 0);
-	// }
-	// // *response_len = 0;
-	// // memcpy(response, send_line, strlen(send_line));
-	// // *response_len += strlen(send_line);
-	// // ssize_t bytes_read;
-	// // // response is a pointer point to start of string
-	// // // so "response + *response_len" can read data after header 
-	// // while((bytes_read = read(file_fd, response + *response_len, 
-	// // 		MAXLINE-*response_len))>0){
-	// // 	*response_len += bytes_read;
-	// // }
-	// close(file_fd);
-}
-
-void *handle_client(void *arg){
+void *handle_http_client(void *arg){
 	int connfd = *(int*)arg;
 	char buf[MAXLINE];
 	char send_line[DMAXLINE];
@@ -154,127 +113,169 @@ void *handle_client(void *arg){
 		// bzero(&send_line, sizeof(send_line));
 		// snprintf(send_line, DMAXLINE,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n%s\n", buf);
 		// send(connfd, send_line, strlen(send_line), 0);
-		
-
-		char *request = url_decode(buf);
+		struct stat file_stat;
+		char *request = buf;
+		url_decode(request);
 		// bzero(&send_line, sizeof(send_line));
-		// snprintf(send_line, DMAXLINE,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nrequest:%s\n", request);
+		// snprintf(send_line, MAXLINE, "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\ndecode path: %s\n", request);
 		// send(connfd, send_line, strlen(send_line), 0);
+		
 		char *method = strtok(request, " ");
-				
-
 		char *path = strtok(NULL, " ");
 		char *protocol = strtok(NULL, " ");
-		
-		// bzero(&send_line, sizeof(send_line));
-		// snprintf(send_line, MAXLINE*2,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\rmethod:%s\n", method);
-		// send(connfd, send_line, strlen(send_line), 0);
-		// bzero(&send_line, sizeof(send_line));
-		// snprintf(send_line, MAXLINE*2,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\rpath:%s\n", path);
-		// send(connfd, send_line, strlen(send_line), 0);
-		// bzero(&send_line, sizeof(send_line));
-		// snprintf(send_line, MAXLINE*2,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\rprotocol:%s\n", protocol);
-		// send(connfd, send_line, strlen(send_line), 0);
-
 		// // if method is not "GET", return 0
 		if(strcmp(method, "GET") != 0){
+			bzero(&send_line, sizeof(send_line));
+			snprintf(send_line, MAXLINE, "HTTP/1.1 501 Not Implemented\r\n"
+        "Content-Type: text/plain\r\n"
+        "Connection: close\r\n\r\n"
+		"501 Not Implemented\n"
+		);
+			send(connfd, send_line, strlen(send_line), 0);
 			close(connfd);
+			free(arg); /*arg is the int pointer of connfd */
 			return NULL;
 		}
 		// if path is root, then redirect it to index.html
+		// it means we visit root of web
 		if(strcmp(path, "/") == 0){
-			// char file_extension[32];
+			// find if index.html exist in root
 			strcpy(path, "/index.html/");	
+			// check if index.html exist in root
+			// if(stat(path, &file_stat) != 0){/*not exist*/
+			// 	bzero(&send_line, sizeof(send_line));
+			// 	snprintf(send_line, MAXLINE, "HTTP/1.0 403 Forbidden\r\nContent-Type: text/plain\r\n\r\n403 Forbidden");
+			// 	send(connfd, send_line, strlen(send_line), 0);
+			// 	close(connfd);
+			// 	return NULL;
+			// }
+			// else{
+			// 	// bzero(&send_line, sizeof(send_line));
+			// 	// snprintf(send_line, MAXLINE, "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nfind html in: %s\n", path);
+			// 	// send(connfd, send_line, strlen(send_line), 0);
+			// 	strcpy(path, "/index.html"); // if index.html in data folder, then convert index.html to origin form 	
+			// }
 		}
 		
-		int path_len = strlen(path);
-		// if path is not end with '/', return 301 status code
 		
-		if(path[path_len-1] != '/'){
-			path[path_len] = '/';
-			path[path_len+1] = '\0';
-			// write 301 code
-		}
-		/*remove first '/' char from path*/
 
-		strcpy(file_extension, get_file_extension(path));
-		// removeFirstChar(path);
-		char *file_path = strtok(path, "/");
+		/*remove first '/' char from path*/
+		
+		
 		// bzero(&send_line, sizeof(send_line));
-		// snprintf(send_line, MAXLINE*2,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nnew_path:%s\n", file_path);
-		// // snprintf(send_line, MAXLINE*2,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r");
+		// snprintf(send_line, MAXLINE, "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\nexten: %s\n", file_extension);
+		// send(connfd, send_line, strlen(send_line), 0);
+		removeFirstChar(path);/*remove the '/' in front of every path, o.w it can not be found*/
+		
+		// bzero(&send_line, sizeof(send_line));
+		// snprintf(send_line, MAXLINE*2,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\rnew_path:%s\n", path);
 		// send(connfd, send_line, strlen(send_line), 0);
 		
-		// send(connfd, buf, sizeof(buf), 0);
-		// regex_t regex;
-		// regcomp(&regex, "^GET (/[^ ]*) HTTP/1.0", REG_EXTENDED);
-		// // index0: whole match string
-		// // index1: first matching group
-		// regmatch_t matches[2];
-		// // check if buf match the pattern of regex
-		// if(regexec(&regex, buf, 2, matches, 0) == 0){
-			// rm_eo: regex match end offset
-			// buf[matches[1].rm_eo] = '\0';
-			// buf is end at index matches[1].rm_eo
-			// const char *url_encode_filename = buf + matches[1].rm_so;// start offset
-			
-		// check for filename is end with "/"
 
-			/*add root of web in front of every path */
-            // Construct the full path by appending the requested filename to the document root
-            // filename has the form: /.../...
-			// snprintf(full_path, MAXLINE, "%s%s", docroot, filename);
+		int path_len = strlen(path);
+		// remove the tailing slash in the end of path, o.w it will check fault
+		bool tailing_slash = false;
+		if(path[path_len-1] == '/'){
+			tailing_slash = true;
+			path[path_len-1] = '\0';
+			// write 301 code
+		}
+		// bzero(&send_line, sizeof(send_line));
+		// snprintf(send_line, MAXLINE*2,"new_path:%s\n", path);
+		// send(connfd, send_line, strlen(send_line), 0);
+
+		// check for filename is end with "/"
+		strcpy(file_extension, get_file_extension(path));
+
 		char response[DMAXLINE];
 		size_t response_len;
 		
-		// build_http_response(file_path, file_extension, response, &response_len, connfd);
-		// build HTTP header
-    	const char *mime_type = get_mime_type(file_extension);
-		// bzero(&send_line, sizeof(send_line));
-		// snprintf(send_line, MAXLINE,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r\n%s\n", mime_type);
-		// // snprintf(send_line, MAXLINE*2,"HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\n\r");
-		// send(connfd, send_line, strlen(send_line), 0);
-		int file_fd = open(file_path, O_RDONLY);/*O_RDONLY: open with read only*/
-	
-		/*can not open file*/
-		if(file_fd == -1){
-			// snprintf(response, MAXLINE, "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found");
-			// *response_len = strlen(response);
+		bool isDir = false;
+		
+		// check if file can be found
+		if(stat(path, &file_stat) != 0) {
 			bzero(&send_line, sizeof(send_line));
 			snprintf(send_line, MAXLINE, "HTTP/1.0 404 Not Found\r\nContent-Type: text/plain\r\n\r\n404 Not Found");
 			send(connfd, send_line, strlen(send_line), 0);
-			return;
+			close(connfd);
+			free(arg); /*arg is the int pointer of connfd */
+			return NULL;
 		}
-		bzero(&send_line, sizeof(send_line));
-		snprintf(send_line, MAXLINE,"HTTP/1.0 200 OK\r\nContent-Type: %s\r\n\r\n",
-				mime_type);
-		send(connfd, send_line, strlen(send_line), 0);
-		// // get file size for Content-Length	
-		// struct stat file_stat;
-		// fstat(file_fd, &file_stat);
-		// off_t file_size = file_stat.st_size;
-		ssize_t bytes_read;
-		// response is a pointer point to start of string
-		// so "response + *response_len" can read data after header 
-		bzero(&send_line, sizeof(send_line));
-		while((bytes_read = read(file_fd, send_line, MAXLINE))>0){
-			send(connfd, send_line, strlen(send_line), 0);
+		if (S_ISDIR(file_stat.st_mode)) {
+			isDir = true;
+		} 
+		// if path is dir, and not end with tailing slash, need to send 301 code
+		// after client receive 301 code, client browser will make a new request 
+		// to the specified location 
+		if(isDir && !tailing_slash){
 			bzero(&send_line, sizeof(send_line));
+			snprintf(send_line, MAXLINE, "HTTP/1.0 301 Moved Permanently\r\nLocation: /%s/\r\n\r\n", path);
+			send(connfd, send_line, strlen(send_line), 0);
+			close(connfd);
+			free(arg); /*arg is the int pointer of connfd */
+			return NULL;
 		}
-		close(file_fd);
-		// send HTTP response to client
-		// send(connfd, response, response_len, 0);
-		free(request);
+		// has right request format, but the directory is forbidden
+		if(isDir && tailing_slash){/*check if index.html exist in this dir*/
+			strcat(path, "/index.html");
+			// if index file can not be found
+			if(stat(path, &file_stat) != 0) {
+				bzero(&send_line, sizeof(send_line));
+				snprintf(send_line, MAXLINE, "HTTP/1.0 403 Forbidden\r\nContent-Type: text/plain\r\n\r\n403 Forbidden");
+				send(connfd, send_line, strlen(send_line), 0);
+			}else{
+				strcpy(file_extension, get_file_extension(path));
+				const char *mime_type = get_mime_type(file_extension);
+				FILE *fd;
+				if ((fd = fopen(path,"rb")) != NULL){
+					bzero(&send_line, sizeof(send_line));
+					snprintf(send_line, MAXLINE,"HTTP/1.0 200 OK\r\nContent-Type: %s\r\n\r\n",
+							mime_type);
+					send(connfd, send_line, strlen(send_line), 0);
+					ssize_t bytes_read;
+					bzero(&send_line, sizeof(send_line));
+					while((bytes_read = fread(send_line, 1, MAXLINE, fd))>0){
+						send(connfd, send_line, bytes_read, 0);
+						bzero(&send_line, sizeof(send_line));
+					}
+				}
+			}
+			close(connfd);
+			free(arg); /*arg is the int pointer of connfd */
+			return NULL;
+		}
+		/*=============================FILE READ================================*/
+		// build_http_response(file_path, file_extension, response, &response_len, connfd);
+		// build HTTP header
+		
+    	const char *mime_type = get_mime_type(file_extension);
+		
+		FILE *fd;
+		if ((fd = fopen(path,"rb")) != NULL){
+			bzero(&send_line, sizeof(send_line));
+			snprintf(send_line, MAXLINE,"HTTP/1.0 200 OK\r\nContent-Type: %s\r\n\r\n",
+					mime_type);
+			send(connfd, send_line, strlen(send_line), 0);
+			ssize_t bytes_read;
+			bzero(&send_line, sizeof(send_line));
+			while((bytes_read = fread(send_line, 1, MAXLINE, fd))>0){
+				send(connfd, send_line, bytes_read, 0);
+				bzero(&send_line, sizeof(send_line));
+			}
+		}
+		fclose(fd);
+		// close(file_fd);
+		// free(request);
 		
 	}
 	close(connfd);
 	free(arg); /*arg is the int pointer of connfd */
 	return NULL;
 }
+
 int main(int argc, char *argv[]) {
-	int listenfd;
-	struct sockaddr_in sin;
-	pid_t				childpid;
+	int listenfd_http, listenfd_https;
+	struct sockaddr_in sin_http, sin_https;
 
 	if(argc > 1) {
 		port_http  = strtol(argv[1], NULL, 0); 
@@ -290,49 +291,48 @@ int main(int argc, char *argv[]) {
         printf("ERROR: Can't Change to directory %s\n",docroot);
         exit(-1);
     }
-
-	if((listenfd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) errquit("socket");
+	/*===================HTTP=====================*/
+	if((listenfd_http = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0) errquit("socket");
 
 	do {
 		int v = 1;
-		setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &v, sizeof(v));
+		setsockopt(listenfd_http, SOL_SOCKET, SO_REUSEADDR, &v, sizeof(v));
 	} while(0);
 
-	bzero(&sin, sizeof(sin));
-	sin.sin_family = AF_INET;
-	sin.sin_port = htons(port_http);
-	sin.sin_addr.s_addr = htonl(INADDR_ANY);
-	if(bind(listenfd, (struct sockaddr*) &sin, sizeof(sin)) < 0) errquit("bind");
-	if(listen(listenfd, SOMAXCONN) < 0) errquit("listen");
+	bzero(&sin_http, sizeof(sin_http));
+	sin_http.sin_family = AF_INET;
+	sin_http.sin_port = htons(port_http);
+	sin_http.sin_addr.s_addr = htonl(INADDR_ANY);
+	if(bind(listenfd_http, (struct sockaddr*) &sin_http, sizeof(sin_http)) < 0) errquit("bind");
+	if(listen(listenfd_http, SOMAXCONN) < 0) errquit("listen");
+	/*===================HTTPS=====================*/
+	
 	
 	do {
-		int *connfd = malloc(sizeof(int));
+		int *connfd_http = malloc(sizeof(int));
+		int *connfd_https = malloc(sizeof(int));
 		struct sockaddr_in csin;
 		socklen_t csinlen = sizeof(csin);
-		FILE *fp;
+		pthread_t thread_id_http, thread_id_https;
+		// FILE *fp;
 		// char buf[4096];
 		/*wait for client connect*/
-		if((*connfd= accept(listenfd, (struct sockaddr*) &csin, &csinlen)) < 0) {
-			perror("accept");
+		/*===================HTTP=====================*/
+		if((*connfd_http= accept(listenfd_http, (struct sockaddr*) &csin, &csinlen)) >= 0) {
+			pthread_create(&thread_id_http, NULL, handle_http_client, (void *)connfd_http);
+			//  detach thread: system releasing the resources associated with the thread once it finishes its execution. 
+			pthread_detach(thread_id_http);
+			// continue;
+		}
+		else{
+			// perror("accept");
 			continue;
 		}
-		pthread_t thread_id;
-		pthread_create(&thread_id, NULL, handle_client, (void *)connfd);
-		//  detach thread: system releasing the resources associated with the thread once it finishes its execution. 
-		pthread_detach(thread_id);
-		// if((fp = fdopen(*connfd, "r+")) == NULL){
-		// 	perror("fdopen");
-		// 	close(connfd);
-		// 	continue;
-		// } 
-		// if((childpid = fork()) == 0){
-		// 	close(listenfd); /*closing listening socket*/
-		// 	while(fgets(buf, sizeof(buf), fp) != NULL){/*read until reach EOF*/
-		// 		fprintf(fp, "xxx%s\n", buf);
-		// 	}
-		// }
-		
+
+
+
 	} while(1);
-	close(listenfd);
+	close(listenfd_http);
+	close(listenfd_https);
 	return 0;
 }
